@@ -1,0 +1,201 @@
+---
+title: "Appendix"
+author: "Theo Noomah"
+date: "December 9, 2018"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(rvest)
+library(stringdist)
+```
+
+## Overview
+The following code pulls property tax records for Hyde Park, matches them on 
+ownership and calculates statistics on the market concentration. Comments in the
+code show how the code can be adapted to analyze any neighborhood in Cook
+County.
+
+## Subset PINs By Neighborhood
+Download parcel data via:
+https://datacatalog.cookcountyil.gov/GIS-Maps/ccgisdata-Parcels-2016/a33b-b59u
+```{r}
+parcels <- read_csv("IO Paper/parcels.csv")
+
+hp_PINs1 <- 
+  parcels %>%
+  filter(PINA == 20, PINSA == 11) %>%  #PINA and PINSA are the first 4 digits of
+  .$Name %>%                           #a PIN. These can be found for a given 
+  as.list()                            #neighborhood using the map above.
+                                       #Change these numbers to analyze a
+hp_PINs2 <-                            #different neighborhood
+  parcels %>% 
+  filter(PINA == 20, PINSA == 14) %>% 
+  .$Name %>% 
+  as.list()
+
+```
+
+## Scraping Function
+This function scrapes the Cook County Property Tax Records Portal, the following
+link is an example showing what is on the page to collect: http://www.cookcountypropertyinfo.com/cookviewerpinresults.aspx?pin=20113020200000
+```{r}
+property_base <- 
+  "http://www.cookcountypropertyinfo.com/cookviewerpinresults.aspx?pin="
+
+pager <- function(pin) {
+    profile <- read_html(str_c(property_base, pin))
+    data.frame(address = profile %>% 
+                 html_node("#ContentPlaceHolder1_PropertyInfo_propertyAddress") %>% 
+                 html_text(),
+               owner = profile %>% 
+                 html_node("#ContentPlaceHolder1_PropertyInfo_propertyMailingName") %>% 
+                 html_text(),
+               owner_mail1 = profile %>% 
+                 html_node("#ContentPlaceHolder1_PropertyInfo_propertyMailingAddress") %>%
+                 html_text(),
+               owner_mail2 = profile %>% 
+                 html_node("#ContentPlaceHolder1_PropertyInfo_propertyMailingCityStateZip") %>%
+                 html_text(),
+               PIN = profile %>% 
+                 html_node("#ContentPlaceHolder1_lblResultTitle") %>%
+                 html_text(),
+               lot = profile %>% 
+                 html_node("#ContentPlaceHolder1_TaxYearInfo_propertyLotSize") %>%
+                 html_text(),
+               total_value = profile %>% 
+                 html_node("#ContentPlaceHolder1_TaxYearInfo_propertyAssessedValue") %>%
+                 html_text(),
+               class = profile %>%
+                 html_node("#ContentPlaceHolder1_TaxYearInfo_propertyClass") %>%
+                 html_text()
+               )
+}
+```
+
+## Run Scraper on Neighborhood Parcel Lists
+
+```{r}
+hp_tax_data1 <- as.tibble(do.call(rbind, lapply(hp_PINs1, pager)))
+hp_tax_data2 <- as.tibble(do.call(rbind, lapply(hp_PINs2, pager)))
+```
+
+## Merge Neighborhoods
+
+```{r}
+hp_tax_data <- 
+  hp_tax_data1 %>% 
+  rbind(hp_tax_data2)
+```
+
+## Coerce Tax Data into to Numeric
+
+```{r}
+#Hyde Park
+hp_tax_data$PIN <- as.numeric(gsub("[^0-9]", "", hp_tax_data[["PIN"]]))
+hp_tax_data$total_value <- as.numeric(gsub("[^0-9]", "", hp_tax_data[["total_value"]]))
+hp_tax_data$lot <- as.numeric(gsub("[^0-9]", "", hp_tax_data[["lot"]]))
+hp_tax_data$class <- as.numeric(gsub("[^0-9]", "", hp_tax_data[["class"]]))
+hp_tax_data <-
+  hp_tax_data %>%
+  separate(owner_mail2, 
+           into=c("city_state", "zip"),
+           sep = -5)
+hp_tax_data$zip <- as.numeric(hp_tax_data[["zip"]])
+```
+
+## Subset Parcels by Class
+
+Class codes via: http://www.cookcountyassessor.com/assets/forms/classcode.pdf
+```{r}
+rental <- c(211, 212, 313:321, 390, 391, 396, 397, 399, 
+            900, 901, 913:918, 959, 990, 991, 996, 997)
+
+hp_rentals <- hp_tax_data %>% filter(class %in% rental)
+hp_rentals$matches <- 1:nrow(hp_rentals)
+```
+
+## Function to Match Owners Within Rental Markets
+```{r}
+assigner_hp <- function(market_class){    #Because this function saves it's 
+                                          #output as a .csv every time it runs,
+for (rowa in 1:nrow(market_class)) {      #each neighborhood needs its own
+    ownera <- market_class[rowa, "owner"] #function with a different name
+    mail1a <- market_class[rowa, "owner_mail1"]
+    zipa <- market_class[rowa, "zip"]
+    matchesa <- market_class[rowa, "matches"]
+
+    if(rowa == nrow(market_class)){break}
+    
+    for (rowb in (rowa+1):nrow(market_class)) {
+    ownerb <- market_class[rowb, "owner"]
+    mail1b <- market_class[rowb, "owner_mail1"]
+    zipb <- market_class[rowb, "zip"]
+
+    if(!zipa %in% 60000:70000 & !is.na(zipa) & !is.na(zipb)){
+    if(zipa == zipb){
+      market_class[rowb, "matches"] <- matchesa
+    }
+      
+    }else if(stringdist(as.character(mail1a), as.character(mail1b)) < 1){
+      market_class[rowb, "matches"] <- matchesa  
+      
+    }else if(stringdist(as.character(ownera), as.character(ownerb)) < 1) {
+      market_class[rowb, "matches"] <- matchesa
+    }
+    }
+    }
+    assign("hp_rentals", market_class,.GlobalEnv)
+    write.csv(market_class, "hp_rentals.csv")
+}
+```
+
+## Run Function on Rentals in Each Neighborhood
+The resulting table will have all of the given market's property tax records
+with the algorithms best guess at which properties are owned by the same company
+indicated by the column "matches." The values in the column are themselves 
+arbitrary, but if two properties have the same number in matches they are almost
+certainly owned by the same company.
+```{r}
+assigner_hp(hp_rentals)
+```
+
+## Summary Statistics
+
+```{r}
+# The portion of rental property value and square feet of lots owned by each of
+# the biggest property owners, in descending order
+hp_rentals %>% 
+  group_by(matches) %>% 
+  summarise(value_share = sum(total_value)/sum(.$total_value),
+            lot_share = sum(lot)/sum(.$lot)) %>% 
+  arrange(desc(value_share))
+
+# The number of rental parcels, the HHI and the share of value owned by the top
+# 1, 4, and 8 firms in a market
+hp_rentals %>%
+  filter(class %in% rental) %>% #Change out "rental"" with a specific class code
+  group_by(matches) %>%         #or codes to analyze sub-markets
+  summarise(value_share = sum(total_value)/sum(.$total_value),
+            value_square = value_share*value_share, n = n()) %>% 
+  arrange(desc(value_share)) %>% 
+  summarise(n = sum(n),
+            hhi = sum(value_square)*10000,
+            top1 = head(value_share, 1),
+            top4 = sum(head(value_share, 4)),
+            top8 = sum(head(value_share, 8))
+            )
+
+# Land use in a neighborhood by square feet, but without condos
+hp_tax_data %>% 
+  group_by(class) %>% 
+  summarise(lot_share = sum(lot, na.rm = TRUE)/sum(.$lot, na.rm = TRUE)) %>% 
+  arrange(desc(lot_share))
+
+# Percent of land used for a specific property type
+hp_tax_data %>% 
+  group_by(class) %>% 
+  summarise(lot_share = sum(lot, na.rm = TRUE)/sum(.$lot, na.rm = TRUE)) %>% 
+  filter(class %in% rental) %>% #"rental" can be changed for a specific class
+  summarise(lot_share = sum(lot_share))
+```
