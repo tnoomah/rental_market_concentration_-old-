@@ -89,7 +89,7 @@ hp_tax_data <-
   rbind(hp_tax_data2)
 ```
 
-## Coerce Tax Data into to Numeric
+## Coerce Tax Data into Numeric
 
 ```{r}
 #Hyde Park
@@ -118,7 +118,7 @@ hp_rentals$matches <- 1:nrow(hp_rentals)
 
 ## Function to Match Owners Within Rental Markets
 ```{r}
-assigner_hp <- function(market_class){    #Because this function saves it's 
+assigner_hp <- function(market_class){    #Because this function saves its 
                                           #output as a .csv every time it runs,
 for (rowa in 1:nrow(market_class)) {      #each neighborhood needs its own
     ownera <- market_class[rowa, "owner"] #function with a different name
@@ -153,10 +153,10 @@ for (rowa in 1:nrow(market_class)) {      #each neighborhood needs its own
 
 ## Run Function on Rentals in Each Neighborhood
 The resulting table will have all of the given market's property tax records
-with the algorithms best guess at which properties are owned by the same company
-indicated by the column "matches." The values in the column are themselves 
-arbitrary, but if two properties have the same number in matches they are almost
-certainly owned by the same company.
+with the algorithm's best guess at which properties are owned by the same 
+company indicated by the column "matches." The values in the column are 
+themselves arbitrary, but if two properties have the same number in matches they
+are almost certainly owned by the same company.
 ```{r}
 assigner_hp(hp_rentals)
 ```
