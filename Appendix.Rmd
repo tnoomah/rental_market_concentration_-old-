@@ -38,7 +38,8 @@ hp_PINs2 <-                            #different neighborhood
 
 ## Scraping Function
 This function scrapes the Cook County Property Tax Records Portal, the following
-link is an example showing what is on the page to collect: http://www.cookcountypropertyinfo.com/cookviewerpinresults.aspx?pin=20113020200000
+link is an example showing what is on the page to collect:
+http://www.cookcountypropertyinfo.com/cookviewerpinresults.aspx?pin=20113020200000
 ```{r}
 property_base <- 
   "http://www.cookcountypropertyinfo.com/cookviewerpinresults.aspx?pin="
